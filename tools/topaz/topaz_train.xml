@@ -1,0 +1,168 @@
+<tool id="topaz_train" name="Topaz Train" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="21.05">
+    <description>Train 2D region classifier from images with labeled coordinates</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="requirements"/>
+    <command detect_errors="exit_code"><![CDATA[
+        #import re
+        mkdir -p train_images_dir &&
+        #for $img in $train_images:
+            #set $clean_name = re.sub('[^\w\-\.]', '_', str($img.element_identifier))
+            #if not $clean_name.endswith('.mrc') and not $clean_name.endswith('.tiff') and not $clean_name.endswith('.png'):
+                #set $clean_name = $clean_name + "." + str($img.ext)
+            #end if
+            ln -s '$img' 'train_images_dir/$clean_name' &&
+        #end for
+
+        #if $test_images:
+            mkdir -p test_images_dir &&
+            #for $img in $test_images:
+                #set $clean_name = re.sub('[^\w\-\.]', '_', str($img.element_identifier))
+                #if not $clean_name.endswith('.mrc') and not $clean_name.endswith('.tiff') and not $clean_name.endswith('.png'):
+                    #set $clean_name = $clean_name + "." + str($img.ext)
+                #end if
+                ln -s '$img' 'test_images_dir/$clean_name' &&
+            #end for
+        #end if
+
+        topaz train
+            --train-images train_images_dir
+            --train-targets '$train_targets'
+            #if $test_images:
+                --test-images test_images_dir
+                --test-targets '$test_targets'
+            #end if
+            --format '$format_'
+            #if str($positive_est.method) == 'pi':
+                --pi $positive_est.pi
+            #else:
+                --num-particles $positive_est.num_particles
+            #end if
+            --radius $radius
+            --method '$method'
+            --slack $slack
+            --autoencoder $autoencoder
+            --l2 $l2
+            --learning-rate $learning_rate
+            --minibatch-size $minibatch_size
+            --minibatch-balance $minibatch_balance
+            --epoch-size $epoch_size
+            --num-epochs $num_epochs
+            --preload '$preload'
+            --model '$model_'
+            --units $units
+            --dropout $dropout
+            --bn '$bn'
+            #if str($pooling) != 'none':
+                --pooling '$pooling'
+            #end if
+            --unit-scaling $unit_scaling
+            --patch-size $patch_size
+            --patch-padding $patch_padding
+            --device $device
+            --num-workers \${GALAXY_SLOTS:-1}
+            --num-threads $num_threads
+            --save-prefix 'model_epoch'
+            -o '$output_curve'
+            > '$output_log' &&
+        
+        LAST_MODEL=\$(ls -v model_epoch_epoch*.sav | tail -n 1) &&
+        cp "\$LAST_MODEL" '$model_output'
+    ]]></command>
+    <inputs>
+        <param name="train_images" type="data" format="mrc,tiff,png" multiple="true" label="Training Micrographs" help="Select one or more training micrographs." />
+        <param name="train_targets" type="data" format="tabular,csv,txt" label="Training Coordinate Targets" help="Coordinate file listing training particle coordinates (image_name, x_coord, y_coord)." />
+        <param name="format_" type="select" label="Target Coordinate File Format">
+            <option value="auto" selected="true">Auto-detect based on file extension</option>
+            <option value="coord">Topaz Coordinate Format</option>
+            <option value="csv">CSV Format</option>
+            <option value="star">STAR Format</option>
+            <option value="box">EMAN Box Format</option>
+        </param>
+        
+        <param name="test_images" type="data" format="mrc,tiff,png" multiple="true" optional="true" label="Test/Validation Micrographs (Optional)" />
+        <param name="test_targets" type="data" format="tabular,csv,txt" optional="true" label="Test Coordinate Targets (Optional)" />
+
+        <conditional name="positive_est">
+            <param name="method" type="select" label="Positive Fraction Estimation Method">
+                <option value="pi" selected="true">Expected Fraction (pi)</option>
+                <option value="num_particles">Expected Number of Particles per Micrograph</option>
+            </param>
+            <when value="pi">
+                <param name="pi" type="float" value="0.05" label="Pi" help="Expected fraction of positive data points (regions)." />
+            </when>
+            <when value="num_particles">
+                <param name="num_particles" type="float" value="100.0" label="Num Particles" help="Expected number of particles per micrograph." />
+            </when>
+        </conditional>
+
+        <param name="radius" type="integer" value="3" min="1" label="Radius (Pixels)" help="Pixel radius around particle centers to consider positive during training." />
+        <param name="method" type="select" label="Training Method">
+            <option value="GE-binomial" selected="true">GE-binomial</option>
+            <option value="GE-KL">GE-KL</option>
+            <option value="PN">PN</option>
+            <option value="PU">PU</option>
+        </param>
+        <param name="slack" type="float" value="-1.0" label="Slack Parameter" help="Weight on GE penalty. Use -1 for default (10 for GE-KL, 1 for GE-binomial)." />
+        <param name="autoencoder" type="float" value="0.0" label="Autoencoder weight" help="Option to augment method with autoencoder. Weight on reconstruction error." />
+        <param name="l2" type="float" value="0.0" label="L2 Regularizer" help="L2 regularization on the model parameters." />
+        <param name="learning_rate" type="float" value="0.0002" label="Learning Rate" />
+        <param name="minibatch_size" type="integer" value="256" min="1" label="Minibatch Size" />
+        <param name="minibatch_balance" type="float" value="0.0625" min="0.0" max="1.0" label="Minibatch Balance" help="Fraction of minibatch that is positive data points." />
+        <param name="epoch_size" type="integer" value="1000" min="1" label="Epoch Size" help="Number of parameter updates per epoch." />
+        <param name="num_epochs" type="integer" value="10" min="1" label="Number of Epochs" />
+        <param name="preload" type="select" label="Preload Dataset to Memory">
+            <option value="auto" selected="true">Auto (preload if memory allows)</option>
+            <option value="true">True</option>
+            <option value="false">False</option>
+        </param>
+
+        <section name="model_opts" title="Model Architecture Options" expanded="false">
+            <param name="model_" type="select" label="Model Type">
+                <option value="resnet8" selected="true">ResNet-8</option>
+                <option value="resnet16">ResNet-16</option>
+                <option value="conv31">Conv-31</option>
+                <option value="conv63">Conv-63</option>
+                <option value="conv127">Conv-127</option>
+            </param>
+            <param name="units" type="integer" value="32" min="1" label="Units" help="Number of units in model base layer." />
+            <param name="dropout" type="float" value="0.0" min="0.0" max="1.0" label="Dropout Rate" />
+            <param name="bn" type="select" label="Batch Normalization">
+                <option value="on" selected="true">On</option>
+                <option value="off">Off</option>
+            </param>
+            <param name="pooling" type="select" label="Pooling Method">
+                <option value="none" selected="true">None</option>
+                <option value="max">Max Pooling</option>
+                <option value="avg">Average Pooling</option>
+            </param>
+            <param name="unit_scaling" type="integer" value="2" min="1" label="Unit Scaling Factor" help="Scale the number of units up by this factor every pool/stride layer." />
+            <param name="patch_size" type="integer" value="96" label="Patch Size" help="Classify micrographs in patches of this size to reduce memory usage." />
+            <param name="patch_padding" type="integer" value="48" label="Patch Padding" help="Padding around each patch to remove edge artifacts." />
+        </section>
+
+        <expand macro="device_parameters" />
+        <expand macro="thread_parameters" />
+    </inputs>
+    <outputs>
+        <data name="model_output" format="data" label="Topaz Model (on ${on_string})" />
+        <data name="output_curve" format="tabular" label="Topaz Train/Test Curve (on ${on_string})" />
+        <data name="output_log" format="txt" label="Topaz Train Output Log (on ${on_string})" />
+    </outputs>
+    <tests>
+        <test expect_failure="true">
+            <param name="train_images" value="macros.xml" />
+            <param name="train_targets" value="macros.xml" />
+            <param name="num_epochs" value="1" />
+        </test>
+    </tests>
+    <help><![CDATA[
+**What it does**
+
+This tool trains a convolutional neural network (CNN) model to classify positive vs unlabeled regions in cryo-EM micrographs.
+Topaz uses Positive-Unlabeled (PU) and Generalized Expectation (GE) learning frameworks, allowing models to be trained effectively
+with only a few labeled particle coordinates.
+    ]]></help>
+    <expand macro="citations"/>
+</tool>

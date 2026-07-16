@@ -1,0 +1,13 @@
+name: topaz_galaxy
+owner: jatin_bioinformatics
+description: Topaz particle detection and deep denoising for cryo-electron microscopy
+long_description: |
+  Topaz is a pipeline for particle detection in cryo-electron microscopy images using
+  convolutional neural networks trained from positive and unlabeled examples. It also
+  includes deep denoising models for micrographs and tomograms to enhance contrast
+  and improve particle picking performance.
+categories:
+  - Imaging
+homepage_url: https://github.com/tbepler/topaz
+remote_repository_url: https://github.com/tbepler/topaz
+type: unrestricted

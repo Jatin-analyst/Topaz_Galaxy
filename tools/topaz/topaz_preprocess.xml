@@ -1,0 +1,73 @@
+<tool id="topaz_preprocess" name="Topaz Preprocess" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="21.05">
+    <description>Downsample and normalize micrographs in one step</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="requirements"/>
+    <command detect_errors="exit_code"><![CDATA[
+        #import re
+        mkdir -p input_images &&
+        mkdir -p output_images &&
+        #for $img in $input_images:
+            #set $clean_name = re.sub('[^\w\-\.]', '_', str($img.element_identifier))
+            ln -s '$img' 'input_images/$clean_name' &&
+        #end for
+
+        topaz preprocess
+            -s $scale
+            $affine
+            $metadata
+            --sample $sample
+            --niters $niters
+            -a $alpha
+            -b $beta
+            --device $device
+            --num-workers \${GALAXY_SLOTS:-1}
+            --num-threads $num_threads
+            --format '$format_'
+            -o output_images
+            input_images/*
+    ]]></command>
+    <inputs>
+        <param name="input_images" type="data" format="mrc,tiff,png" multiple="true" label="Micrograph Images" help="Select one or more micrographs." />
+        <param name="scale" type="integer" value="1" min="1" label="Downsampling Factor" help="Downsample images by this factor. Default: 1." />
+        <param name="affine" type="boolean" truevalue="--affine" falsevalue="" checked="false" label="Use Standard Affine Normalization" help="If checked, uses (x - mean)/std of the whole image instead of the 2-component Gaussian Mixture Model (GMM)." />
+        <param name="sample" type="integer" value="10" min="1" label="Pixel Sampling Factor" help="Pixel sampling factor for model fit. Speeds up estimation but introduces sample error if > 1." />
+        <param name="niters" type="integer" value="100" min="1" label="Maximum EM Iterations" help="Maximum number of EM iterations to run for GMM model fit." />
+        <param name="alpha" type="float" value="900.0" label="Alpha parameter" help="Alpha parameter of the beta distribution prior on the GMM mixing proportion." />
+        <param name="beta" type="float" value="1.0" label="Beta parameter" help="Beta parameter of the beta distribution prior on the GMM mixing proportion." />
+        <param name="metadata" type="boolean" truevalue="--metadata" falsevalue="" checked="false" label="Save parameter metadata" help="Save parameter metadata for each micrograph in JSON format." />
+        <param name="format_" type="select" label="Output Image Format">
+            <option value="mrc" selected="true">MRC</option>
+            <option value="tiff">TIFF</option>
+            <option value="png">PNG</option>
+        </param>
+        <expand macro="device_parameters" />
+        <expand macro="thread_parameters" />
+    </inputs>
+    <outputs>
+        <collection name="preprocessed_images" type="list" label="Topaz Preprocessed Images (on ${on_string})">
+            <discover_datasets pattern="(?P&lt;designation&gt;.+)\.(?P&lt;ext&gt;mrc|tiff|png)" directory="output_images" />
+        </collection>
+        <collection name="metadata_outputs" type="list" label="Topaz Preprocessing Metadata (on ${on_string})">
+            <filter>metadata</filter>
+            <discover_datasets pattern="(?P&lt;designation&gt;.+)\.metadata\.json" directory="output_images" format="json" />
+        </collection>
+    </outputs>
+    <tests>
+        <test expect_failure="true">
+            <!-- Checking lint and schema validation without real data -->
+            <param name="input_images" value="macros.xml" />
+            <param name="scale" value="1" />
+            <param name="affine" value="false" />
+        </test>
+    </tests>
+    <help><![CDATA[
+**What it does**
+
+This tool downsamples and normalizes images (micrographs) using Topaz's preprocess subcommand.
+It utilizes a 2-component Gaussian mixture model (GMM) by default to handle background and carbon pixels,
+standardizing exposures across micrographs for more accurate downstream training and particle picking.
+    ]]></help>
+    <expand macro="citations"/>
+</tool>

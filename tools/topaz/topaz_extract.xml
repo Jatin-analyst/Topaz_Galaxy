@@ -1,0 +1,147 @@
+<tool id="topaz_extract" name="Topaz Extract" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="21.05">
+    <description>Extract particles from micrographs using a trained model</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="requirements"/>
+    <command detect_errors="exit_code"><![CDATA[
+        #import re
+        mkdir -p input_images &&
+        #for $img in $input_images:
+            #set $clean_name = re.sub('[^\w\-\.]', '_', str($img.element_identifier))
+            #if not $clean_name.endswith('.mrc') and not $clean_name.endswith('.tiff') and not $clean_name.endswith('.png'):
+                #set $clean_name = $clean_name + "." + str($img.ext)
+            #end if
+            ln -s '$img' 'input_images/$clean_name' &&
+        #end for
+
+        #if str($output_mode) == 'per_micrograph':
+            mkdir -p output_dir &&
+        #end if
+
+        topaz extract
+            #if str($model_source.selector) == 'custom':
+                --model '$model_source.custom_model'
+            #else:
+                --model '$model_source.pretrained_model'
+            #end if
+            #if $radius:
+                --radius $radius
+            #end if
+            --threshold $threshold
+            --down-scale $down_scale
+            --up-scale $up_scale
+            --num-workers \${GALAXY_SLOTS:-1}
+            --num-threads $num_threads
+            --batch-size $batch_size
+            #if $patch_size > 0:
+                --patch-size $patch_size
+            #end if
+            #if $targets:
+                --targets '$targets'
+                --min-radius $radius_tuning.min_radius
+                --max-radius $radius_tuning.max_radius
+                --step-radius $radius_tuning.step_radius
+                #if $radius_tuning.assignment_radius:
+                    --assignment-radius $radius_tuning.assignment_radius
+                #end if
+            #end if
+            $only_validate
+            --device $device
+            --format '$format_'
+            --dims $dims
+            #if str($output_mode) == 'single':
+                -o '$output_single'
+            #else:
+                --per-micrograph
+                -o output_dir
+            #end if
+            input_images/*
+    ]]></command>
+    <inputs>
+        <param name="input_images" type="data" format="mrc,tiff,png" multiple="true" label="Micrograph Images" help="Select preprocessed micrographs for extraction." />
+        
+        <conditional name="model_source">
+            <param name="selector" type="select" label="Model Source">
+                <option value="pretrained" selected="true">Pretrained Model</option>
+                <option value="custom">Trained Model File (.sav)</option>
+            </param>
+            <when value="pretrained">
+                <param name="pretrained_model" type="select" label="Pretrained Model Name">
+                    <option value="resnet16" selected="true">ResNet-16 (Default)</option>
+                    <option value="resnet8">ResNet-8</option>
+                    <option value="resnet8_u32">ResNet-8 (32 units)</option>
+                    <option value="resnet8_u64">ResNet-8 (64 units)</option>
+                    <option value="resnet16_u32">ResNet-16 (32 units)</option>
+                    <option value="resnet16_u64">ResNet-16 (64 units)</option>
+                </param>
+            </when>
+            <when value="custom">
+                <param name="custom_model" type="data" format="data" label="Trained Model File" help="Select your custom trained .sav model file." />
+            </when>
+        </conditional>
+
+        <param name="radius" type="integer" value="" optional="true" label="Extraction Radius (Pixels)" help="Radius of the regions to extract. If empty, you must provide Targets below to tune the radius." />
+        <param name="threshold" type="float" value="-6.0" label="Score Threshold" help="Log-likelihood score threshold at which to terminate region extraction. -6 is p>=0.0025. Default: -6." />
+        
+        <param name="down_scale" type="float" value="1.0" label="Down-scale Coordinates Factor" help="DOWN-scale coordinates by this factor." />
+        <param name="up_scale" type="float" value="1.0" label="Up-scale Coordinates Factor" help="UP-scale coordinates by this factor." />
+        
+        <param name="batch_size" type="integer" value="1" min="1" label="Batch Size" help="Batch size for scoring micrographs with the model." />
+        <param name="patch_size" type="integer" value="0" label="Patch Size" help="Patch size for scoring micrographs in pieces. Use 0 for no patching." />
+
+        <param name="targets" type="data" format="tabular,csv,txt" optional="true" label="Ground Truth Coordinates (Optional)" help="Path to file specifying particle coordinates, used to tune extraction radius or calculate AUPRC validation." />
+        
+        <section name="radius_tuning" title="Radius Tuning Options" expanded="false">
+            <param name="min_radius" type="integer" value="5" label="Minimum Radius" />
+            <param name="max_radius" type="integer" value="100" label="Maximum Radius" />
+            <param name="step_radius" type="integer" value="5" label="Step Radius" />
+            <param name="assignment_radius" type="integer" value="" optional="true" label="Assignment Radius" help="Defaults to extraction radius." />
+        </section>
+
+        <param name="only_validate" type="boolean" truevalue="--only-validate" falsevalue="" checked="false" label="Only Calculate Validation Metrics" help="Calculate and print validation metrics instead of reporting full prediction list." />
+        
+        <param name="format_" type="select" label="Output Format">
+            <option value="coord" selected="true">Topaz Coordinate Format</option>
+            <option value="csv">CSV Format</option>
+            <option value="star">STAR Format</option>
+            <option value="json">JSON Format</option>
+            <option value="box">EMAN Box Format</option>
+        </param>
+        
+        <param name="dims" type="select" label="Image Dimensionality">
+            <option value="2" selected="true">2D (Micrographs)</option>
+            <option value="3">3D (Tomograms)</option>
+        </param>
+
+        <param name="output_mode" type="select" label="Output Mode">
+            <option value="single" selected="true">Single unified coordinate file</option>
+            <option value="per_micrograph">One coordinate file per micrograph</option>
+        </param>
+
+        <expand macro="device_parameters" />
+        <expand macro="thread_parameters" />
+    </inputs>
+    <outputs>
+        <data name="output_single" format="tabular" label="Topaz Extracted Particles (on ${on_string})">
+            <filter>output_mode == 'single'</filter>
+        </data>
+        <collection name="coords_outputs" type="list" label="Topaz Coordinate Files (on ${on_string})">
+            <filter>output_mode == 'per_micrograph'</filter>
+            <discover_datasets pattern="(?P&lt;designation&gt;.+)\.(?P&lt;ext&gt;coord|csv|star|json|box)" directory="output_dir" />
+        </collection>
+    </outputs>
+    <tests>
+        <test expect_failure="true">
+            <param name="input_images" value="macros.xml" />
+            <param name="radius" value="10" />
+        </test>
+    </tests>
+    <help><![CDATA[
+**What it does**
+
+This tool segments input micrographs using a trained Topaz neural network model and extracts particle coordinates
+using a non-maximum suppression (NMS) algorithm. It can output coordinates in Topaz, CSV, STAR, JSON, or EMAN Box format.
+    ]]></help>
+    <expand macro="citations"/>
+</tool>

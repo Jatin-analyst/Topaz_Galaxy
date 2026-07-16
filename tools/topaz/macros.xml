@@ -1,0 +1,22 @@
+<macros>
+    <token name="@TOOL_VERSION@">0.3.20</token>
+    <token name="@VERSION_SUFFIX@">0</token>
+    <xml name="requirements">
+        <requirements>
+            <requirement type="package" version="@TOOL_VERSION@">topaz</requirement>
+            <yield/>
+        </requirements>
+    </xml>
+    <xml name="citations">
+        <citations>
+            <citation type="doi">10.1038/s41592-019-0575-8</citation>
+            <citation type="doi">10.1038/s41467-020-18952-1</citation>
+        </citations>
+    </xml>
+    <xml name="device_parameters">
+        <param name="device" type="integer" value="-1" label="Device ID" help="Which CUDA device to use. Use -1 to force CPU. Default: -1." />
+    </xml>
+    <xml name="thread_parameters">
+        <param name="num_threads" type="integer" value="0" label="Number of PyTorch Threads" help="0 uses PyTorch defaults, &lt;0 uses all cores." />
+    </xml>
+</macros>
