@@ -8,6 +8,6 @@ long_description: |
   and improve particle picking performance.
 categories:
   - Imaging
-homepage_url: https://github.com/tbepler/topaz
-remote_repository_url: https://github.com/tbepler/topaz
+homepage_url: https://github.com/Jatin-analyst/Topaz_Galaxy
+remote_repository_url: https://github.com/Jatin-analyst/Topaz_Galaxy/tree/master/tools/topaz
 type: unrestricted
